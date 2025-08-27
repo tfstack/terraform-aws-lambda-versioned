@@ -157,6 +157,23 @@ variable "policy_arns" {
   }
 }
 
+variable "architectures" {
+  description = "Instruction set architecture for the Lambda function. Valid values are x86_64 and arm64"
+  type        = list(string)
+  default     = ["x86_64"]
+  validation {
+    condition = alltrue([
+      for arch in var.architectures :
+      contains(["x86_64", "arm64"], arch)
+    ])
+    error_message = "Each architecture must be either 'x86_64' or 'arm64'."
+  }
+  validation {
+    condition     = length(var.architectures) == 1
+    error_message = "Exactly one architecture must be specified."
+  }
+}
+
 variable "tags" {
   description = "Tags to apply to the Lambda function"
   type        = map(string)

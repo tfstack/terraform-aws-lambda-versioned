@@ -17,7 +17,7 @@ locals {
   use_zip_source_url = var.package_type == "Zip" && var.zip_source_url != null
 
   # Generate unique suffix for S3 bucket when using zip source URL
-  s3_bucket_suffix = var.package_type == "Zip" && var.zip_source_url != null ? random_string.s3_suffix[0].result : null
+  s3_bucket_suffix = var.package_type == "Zip" && var.zip_source_url != null ? random_string.s3_suffix[0].result : ""
 }
 
 # Random string for S3 bucket suffix when using zip source URL
@@ -27,13 +27,6 @@ resource "random_string" "s3_suffix" {
   length  = 8
   special = false
   upper   = false
-}
-
-# HTTP data source to download zip when zip_source_url is provided
-data "http" "zip_source" {
-  count = var.package_type == "Zip" && var.zip_source_url != null ? 1 : 0
-
-  url = var.zip_source_url
 }
 
 # S3 bucket for zip source URL downloads
@@ -56,14 +49,48 @@ resource "aws_s3_bucket_versioning" "zip_source" {
   }
 }
 
-# S3 object for zip source URL downloads
-resource "aws_s3_object" "zip_source" {
+# HTTP data source to download zip
+data "http" "zip" {
   count = var.package_type == "Zip" && var.zip_source_url != null ? 1 : 0
 
-  bucket  = aws_s3_bucket.zip_source[0].id
-  key     = "function.zip"
-  content = data.http.zip_source[0].response_body
-  etag    = md5(data.http.zip_source[0].response_body)
+  url = var.zip_source_url
+  # request_headers = { Authorization = "Bearer ${var.token}" } # if needed
+}
+
+# Create cache directory
+resource "null_resource" "cache_dir" {
+  count = var.package_type == "Zip" && var.zip_source_url != null ? 1 : 0
+
+  provisioner "local-exec" {
+    command = "mkdir -p ${path.module}/.cache"
+  }
+}
+
+# Stable on disk, changes when content/ETag changes
+resource "local_file" "zip" {
+  count = var.package_type == "Zip" && var.zip_source_url != null ? 1 : 0
+
+  content_base64 = data.http.zip[0].response_body_base64
+  filename       = "${path.module}/.cache/pkg-${sha256(data.http.zip[0].response_body)}.zip"
+
+  depends_on = [null_resource.cache_dir]
+}
+
+# Local file data source for the downloaded zip
+data "local_file" "zip_data" {
+  count = var.package_type == "Zip" && var.zip_source_url != null ? 1 : 0
+
+  filename = local_file.zip[0].filename
+}
+
+# External zip source object (download from URL, cache locally, then upload to S3)
+resource "aws_s3_object" "external_zip_source" {
+  count = var.package_type == "Zip" && var.zip_source_url != null ? 1 : 0
+
+  bucket = aws_s3_bucket.zip_source[0].id
+  key    = "function.zip"
+  source = local_file.zip[0].filename
+  etag   = md5(data.http.zip[0].response_body)
 }
 
 resource "aws_iam_role" "lambda" {
@@ -104,15 +131,16 @@ resource "aws_lambda_function" "this" {
   image_uri    = var.image_uri
 
   # S3 configuration for zip package
-  s3_bucket         = local.use_zip_source_url ? aws_s3_bucket.zip_source[0].id : var.s3_bucket
-  s3_key            = local.use_zip_source_url ? aws_s3_object.zip_source[0].key : var.s3_key
-  s3_object_version = local.use_zip_source_url ? aws_s3_object.zip_source[0].version_id : var.s3_object_version
+  s3_bucket         = local.use_zip_source_url ? try(aws_s3_bucket.zip_source[0].id, null) : var.s3_bucket
+  s3_key            = local.use_zip_source_url ? try(aws_s3_object.external_zip_source[0].key, null) : var.s3_key
+  s3_object_version = local.use_zip_source_url ? try(aws_s3_object.external_zip_source[0].version_id, null) : var.s3_object_version
 
   # Common configuration
   description                    = var.description
   timeout                        = var.timeout
   memory_size                    = var.memory_size
   reserved_concurrent_executions = var.reserved_concurrent_executions
+  architectures                  = var.architectures
 
   environment {
     variables = var.environment_variables

@@ -23,18 +23,19 @@ locals {
 # 2. Creates an S3 bucket
 # 3. Uploads the zip to S3
 # 4. Uses the uploaded S3 details for the Lambda function
-module "lambda_rust_http" {
+module "lambda" {
   source = "../../"
 
   function_name = "rust-http-${random_string.suffix.result}"
   package_type  = "Zip"
 
   # This is the key new feature - provide an HTTP URL to download the zip
-  zip_source_url = "https://github.com/serverlessia/lambda-rust-http/archive/refs/tags/latest.zip"
+  zip_source_url = "https://github.com/serverlessia/lambda-basic/releases/download/v7/function.zip"
 
   # For Rust Lambda functions, the handler and runtime are specific
   handler = "bootstrap"    # Rust Lambda functions use "bootstrap" as handler
   runtime = "provided.al2" # Custom runtime for Rust
+  # architectures = ["arm64"]
 
   policy_arns = [
     "arn:aws:iam::aws:policy/service-role/AWSLambdaBasicExecutionRole"
