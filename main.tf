@@ -3,14 +3,67 @@ locals {
   validate_zip_package = var.package_type == "Zip" ? (
     var.handler != null &&
     var.runtime != null &&
-    var.s3_bucket != null &&
-    var.s3_key != null &&
-    var.s3_object_version != null
+    (
+      (var.zip_source_url != null) ||
+      (var.s3_bucket != null && var.s3_key != null && var.s3_object_version != null)
+    )
   ) : true
 
   validate_image_package = var.package_type == "Image" ? (
     var.image_uri != null
   ) : true
+
+  # Check if using zip source URL (supersedes manual S3 config)
+  use_zip_source_url = var.package_type == "Zip" && var.zip_source_url != null
+
+  # Generate unique suffix for S3 bucket when using zip source URL
+  s3_bucket_suffix = var.package_type == "Zip" && var.zip_source_url != null ? random_string.s3_suffix[0].result : null
+}
+
+# Random string for S3 bucket suffix when using zip source URL
+resource "random_string" "s3_suffix" {
+  count = var.package_type == "Zip" && var.zip_source_url != null ? 1 : 0
+
+  length  = 8
+  special = false
+  upper   = false
+}
+
+# HTTP data source to download zip when zip_source_url is provided
+data "http" "zip_source" {
+  count = var.package_type == "Zip" && var.zip_source_url != null ? 1 : 0
+
+  url = var.zip_source_url
+}
+
+# S3 bucket for zip source URL downloads
+resource "aws_s3_bucket" "zip_source" {
+  count = var.package_type == "Zip" && var.zip_source_url != null ? 1 : 0
+
+  bucket = "lambda-zips-${local.s3_bucket_suffix}"
+
+  tags = var.tags
+}
+
+# S3 bucket versioning for zip source URL downloads
+resource "aws_s3_bucket_versioning" "zip_source" {
+  count = var.package_type == "Zip" && var.zip_source_url != null ? 1 : 0
+
+  bucket = aws_s3_bucket.zip_source[0].id
+
+  versioning_configuration {
+    status = "Enabled"
+  }
+}
+
+# S3 object for zip source URL downloads
+resource "aws_s3_object" "zip_source" {
+  count = var.package_type == "Zip" && var.zip_source_url != null ? 1 : 0
+
+  bucket  = aws_s3_bucket.zip_source[0].id
+  key     = "function.zip"
+  content = data.http.zip_source[0].response_body
+  etag    = md5(data.http.zip_source[0].response_body)
 }
 
 resource "aws_iam_role" "lambda" {
@@ -51,9 +104,9 @@ resource "aws_lambda_function" "this" {
   image_uri    = var.image_uri
 
   # S3 configuration for zip package
-  s3_bucket         = var.s3_bucket
-  s3_key            = var.s3_key
-  s3_object_version = var.s3_object_version
+  s3_bucket         = local.use_zip_source_url ? aws_s3_bucket.zip_source[0].id : var.s3_bucket
+  s3_key            = local.use_zip_source_url ? aws_s3_object.zip_source[0].key : var.s3_key
+  s3_object_version = local.use_zip_source_url ? aws_s3_object.zip_source[0].version_id : var.s3_object_version
 
   # Common configuration
   description                    = var.description
@@ -96,7 +149,7 @@ resource "aws_lambda_function" "this" {
   lifecycle {
     precondition {
       condition     = local.validate_zip_package
-      error_message = "For Zip package type, handler, runtime, s3_bucket, s3_key, and s3_object_version are required."
+      error_message = "For Zip package type, handler and runtime are required, and either zip_source_url OR (s3_bucket, s3_key, and s3_object_version) must be provided."
     }
     precondition {
       condition     = local.validate_image_package

@@ -49,6 +49,12 @@ variable "s3_object_version" {
   default     = null
 }
 
+variable "zip_source_url" {
+  description = "HTTP URL to download the zip file from. If provided, supersedes manual S3 configuration for zip package type"
+  type        = string
+  default     = null
+}
+
 # Image package configuration
 variable "image_uri" {
   description = "ECR image URI containing the function's deployment package (required for image package type)"

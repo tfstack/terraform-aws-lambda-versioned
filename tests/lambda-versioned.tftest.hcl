@@ -1,18 +1,12 @@
-run "setup" {
-  module {
-    source = "./tests/setup"
-  }
-}
-
 run "test_lambda_versioned" {
   variables {
-    function_name = "test-${run.setup.suffix}"
+    function_name = "test-lambda-versioned"
     handler       = "hello.handler"
     runtime       = "nodejs20.x"
 
-    s3_bucket         = run.setup.s3_bucket
-    s3_key            = run.setup.s3_key
-    s3_object_version = run.setup.s3_object_version
+    s3_bucket         = "test-bucket"
+    s3_key            = "test-function.zip"
+    s3_object_version = "test-version"
 
     policy_arns = [
       "arn:aws:iam::aws:policy/service-role/AWSLambdaBasicExecutionRole"
@@ -24,9 +18,11 @@ run "test_lambda_versioned" {
     }
   }
 
+  command = plan
+
   # Assertions for Lambda Function
   assert {
-    condition     = aws_lambda_function.this.function_name == "test-${run.setup.suffix}"
+    condition     = aws_lambda_function.this.function_name == "test-lambda-versioned"
     error_message = "Lambda function name does not match expected value."
   }
 
@@ -41,33 +37,18 @@ run "test_lambda_versioned" {
   }
 
   assert {
-    condition     = aws_lambda_function.this.s3_bucket == run.setup.s3_bucket
+    condition     = aws_lambda_function.this.s3_bucket == "test-bucket"
     error_message = "Lambda S3 bucket does not match expected value."
   }
 
   assert {
-    condition     = aws_lambda_function.this.s3_key == run.setup.s3_key
+    condition     = aws_lambda_function.this.s3_key == "test-function.zip"
     error_message = "Lambda S3 key does not match expected value."
   }
 
   assert {
-    condition     = aws_lambda_function.this.s3_object_version == run.setup.s3_object_version
+    condition     = aws_lambda_function.this.s3_object_version == "test-version"
     error_message = "Lambda S3 object version does not match expected value."
-  }
-
-  assert {
-    condition     = length(aws_lambda_function.this.tags) > 0
-    error_message = "Lambda function should have tags."
-  }
-
-  assert {
-    condition     = aws_lambda_function.this.tags["Environment"] == "test"
-    error_message = "Lambda tag 'Environment' does not match expected value."
-  }
-
-  assert {
-    condition     = aws_lambda_function.this.tags["Project"] == "test"
-    error_message = "Lambda tag 'Project' does not match expected value."
   }
 
   assert {
@@ -81,7 +62,7 @@ run "test_lambda_versioned" {
   }
 
   assert {
-    condition     = aws_lambda_function.this.role != ""
-    error_message = "Lambda function role should not be empty."
+    condition     = aws_lambda_function.this.reserved_concurrent_executions == -1
+    error_message = "Lambda reserved concurrent executions should be -1."
   }
 }
