@@ -100,6 +100,7 @@ variable "kms_key_arn" {
 variable "vpc_config" {
   description = "VPC configuration for the Lambda function"
   type = object({
+    vpc_id             = string
     subnet_ids         = list(string)
     security_group_ids = list(string)
   })
@@ -149,6 +150,35 @@ variable "policy_arns" {
     ])
     error_message = "Each policy ARN must be a valid AWS or account-scoped IAM policy ARN."
   }
+}
+
+variable "create_function_url" {
+  description = "Whether to create a Function URL for HTTP access"
+  type        = bool
+  default     = false
+}
+
+variable "function_url_authorization_type" {
+  description = "Authorization type for Function URL"
+  type        = string
+  default     = "NONE"
+  validation {
+    condition     = contains(["NONE", "AWS_IAM"], var.function_url_authorization_type)
+    error_message = "Authorization type must be either NONE or AWS_IAM."
+  }
+}
+
+variable "function_url_cors" {
+  description = "CORS configuration for Function URL"
+  type = object({
+    allow_credentials = optional(bool, false)
+    allow_origins     = optional(list(string), ["*"])
+    allow_methods     = optional(list(string), ["*"])
+    allow_headers     = optional(list(string), ["date", "keep-alive"])
+    expose_headers    = optional(list(string), ["date", "keep-alive"])
+    max_age           = optional(number, 86400)
+  })
+  default = null
 }
 
 variable "tags" {
